@@ -1,13 +1,14 @@
 // -------------------------------------------------------
-// ProjectCtrl – Prisma Schema (PostgreSQL recommended)
+// ProjectCtrl – Prisma Schema (PostgreSQL)
 // -------------------------------------------------------
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------- Enums --------------------------
@@ -56,52 +57,69 @@ enum NotificationPriority {
   CRITICAL
 }
 
+enum ContributionValidationStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ---------------------- Core Users ---------------------
 model User {
-  id               String           @id @default(cuid())
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                  String               @id @default(cuid())
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
-  email            String           @unique
-  name             String?
-  role             UserRole
+  // Auth/identity
+  email               String               @unique           // Google login email; must be college domain for students/teachers
+  name                String?
+  role                UserRole
 
-  // College identity
-  enrollmentNo     String?          // required for students; unique when present
-  collegeEmail     String?          // must be domain-validated at app level
+  // College identity (for student/teacher)
+  enrollmentNo        String?              @unique
+  collegeEmail        String?                                 // same as 'email' if using official domain
 
-  // Profiles
-  studentProfile   StudentProfile?
-  teacherProfile   TeacherProfile?
-  adminProfile     AdminProfile?
+  // External ERP sync state
+  externalSyncStatus  String               @default("PENDING") // PENDING | SYNCED | FAILED
+  syncedAt            DateTime?
+
+  // Profiles (one of these typically)
+  studentProfile      StudentProfile?
+  teacherProfile      TeacherProfile?
+  adminProfile        AdminProfile?
 
   // OTP/verification + audit
-  verificationTokens VerificationToken[]
-  auditLogs        AuditLog[]
+  verificationTokens  VerificationToken[]
+  auditLogs           AuditLog[]
 
-  // Relations for assignment/actions
+  // Mentor/team relations
   assignedMentorTeams TeamMentorAssignment[] @relation("MentorUser")
   assignedByMentorHistory TeamMentorAssignment[] @relation("AssignedByAdmin")
 
   // Team relations
-  ledTeams         Team[]           @relation("TeamLeader")
-  currentMentorForTeams Team[]       @relation("CurrentMentorOnTeam")
+  ledTeams            Team[]               @relation("TeamLeader")
+  currentMentorForTeams Team[]             @relation("CurrentMentorOnTeam")
 
   // Files and submissions
-  uploadedFiles    ProjectFile[]
-  submissions      Submission[]     @relation("SubmissionUser")
+  uploadedFiles       ProjectFile[]
+  submissions         Submission[]         @relation("SubmissionUser")
 
   // Assessments
-  assessments      Assessment[]     @relation("AssessmentMentor")
+  assessments         Assessment[]         @relation("AssessmentMentor")
 
   // Notifications/Emails
-  userNotifications UserNotification[]
-  emailJobs        EmailJobRecipient[]
+  userNotifications   UserNotification[]
+  emailJobs           EmailJobRecipient[]
   createdNotifications Notification[]
-  createdEmailJobs EmailJob[]
+  createdEmailJobs    EmailJob[]
+
+  // Weekly Reports
+  weeklyReports       WeeklyReport[]
+
+  // External Sync Logs
+  externalSyncLogs    ExternalSyncLog[]
 
   @@index([role])
-  @@unique([enrollmentNo])
 }
 
 // ---------------------- Profiles -----------------------
@@ -110,6 +128,13 @@ model StudentProfile {
   userId           String        @unique
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // From ERP (kept in profile for fast filter)
+  department       String
+  semester         Int?
+  division         String?
+  institution      String?
+  course           String?
+
   // enforce 'one active team at a time'
   currentTeamId    String?       @unique
   currentTeam      Team?         @relation(fields: [currentTeamId], references: [id])
@@ -117,6 +142,7 @@ model StudentProfile {
   // history
   memberships      TeamMembership[]
 
+  @@index([department])
   @@index([currentTeamId])
 }
 
@@ -125,9 +151,9 @@ model TeacherProfile {
   userId           String     @unique
   user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // mentor can be assigned to multiple teams (history table below)
-  expertise        String?
-  departments      String?    // optional CSV or normalized table if needed later
+  expertise        String?    // free text or CSV; normalize later if needed
+  technologies     String?    // free text or CSV
+  department       String?    // optional primary department
 }
 
 model AdminProfile {
@@ -148,6 +174,9 @@ model Team {
   leaderUserId     String           @unique
   leader           User             @relation("TeamLeader", fields: [leaderUserId], references: [id])
 
+  // Department lock (all members must match leader/this department)
+  department       String
+
   // membership & mapping
   memberships      TeamMembership[]
   mentorAssignments TeamMentorAssignment[]
@@ -158,13 +187,17 @@ model Team {
   project          Project?
 
   // assessment summary (optional denormalization)
-  latestAssessmentId String?          @unique
-  latestAssessment  Assessment?      @relation(fields: [latestAssessmentId], references: [id])
+  latestAssessmentId String?        @unique
+  latestAssessment  Assessment?     @relation(fields: [latestAssessmentId], references: [id])
+
+  // weekly reports
+  weeklyReports     WeeklyReport[]
 
   // current student (one-to-one with StudentProfile)
-  currentStudent   StudentProfile?
+  currentStudent    StudentProfile?
 
   @@index([currentMentorId])
+  @@index([department])
 }
 
 model TeamMembership {
@@ -176,10 +209,11 @@ model TeamMembership {
   studentProfile   StudentProfile   @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
 
   role             TeamMemberRole   @default(MEMBER)
+  memberDeclaredRole String?        // custom role text shown under name (must be filled by each member)
   joinedAt         DateTime         @default(now())
   leftAt           DateTime?
 
-  // Prevent duplicates in same team for the same student
+  // Prevent duplicates in same team for the same student (per join event)
   @@unique([teamId, studentProfileId, joinedAt])
   @@index([studentProfileId])
 }
@@ -199,7 +233,6 @@ model TeamMentorAssignment {
   assignedAt       DateTime   @default(now())
   endedAt          DateTime?
 
-  // helpful for quick lookups
   @@index([mentorUserId])
   @@index([teamId, assignedAt])
 }
@@ -210,14 +243,16 @@ model Project {
   teamId           String       @unique
   team             Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
-  title            String
-  description      String?
-  domain           String?      // mentor-specified domain/topic
+  // leader-editable fields
+  technology       String
+  domain           String
+  problemStatement String
 
   // links & files
   repoUrl          String?
-  currentReportId  String?
-  currentReport    ProjectFile? @relation("ProjectCurrentReport", fields: [currentReportId], references: [id])
+  srsReportId      String?       // latest SRS file
+  srsReport        ProjectFile?  @relation("ProjectSRS", fields: [srsReportId], references: [id])
+  pptUrl           String?
 
   submissions      Submission[]
   assessments      Assessment[]
@@ -225,6 +260,7 @@ model Project {
   @@index([domain])
 }
 
+// Generic file bucket (S3/GCS/etc.)
 model ProjectFile {
   id               String     @id @default(cuid())
   createdAt        DateTime   @default(now())
@@ -238,50 +274,55 @@ model ProjectFile {
   uploadedBy       User       @relation(fields: [uploadedByUserId], references: [id])
 
   // Relations
-  currentInProjects Project[] @relation("ProjectCurrentReport")
+  srsInProjects    Project[]  @relation("ProjectSRS")
   submissions      Submission[]
 }
 
 // ---------------------- Submissions & Plagiarism -------
 model Submission {
-  id               String            @id @default(cuid())
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                   String                     @id @default(cuid())
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
 
-  projectId        String
-  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId            String
+  project              Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  submittedByUserId String
-  submittedBy      User              @relation("SubmissionUser", fields: [submittedByUserId], references: [id])
+  submittedByUserId    String
+  submittedBy          User                       @relation("SubmissionUser", fields: [submittedByUserId], references: [id])
 
-  attemptNo        Int               // 1,2,3...
-  status           SubmissionStatus  @default(PENDING_CHECK)
+  attemptNo            Int
+  status               SubmissionStatus           @default(PENDING_CHECK)
 
-  reportFileId     String?
-  reportFile       ProjectFile?      @relation(fields: [reportFileId], references: [id])
+  reportFileId         String?                    // report/PDF for this attempt (could be same as SRS or consolidated project)
+  reportFile           ProjectFile?               @relation(fields: [reportFileId], references: [id])
 
-  repoUrl          String?
-  notes            String?
+  repoUrl              String?                    // override or confirm repo for this submission
+  notes                String?
 
-  plagiarismReport PlagiarismReport?
-  assessment       Assessment?       // optional direct link if mentor graded this submission
+  // Plagiarism & contribution
+  plagiarismReport     PlagiarismReport?
+  uniqueContribution   String?                    // required when similarityPct > 80
+  contributionStatus   ContributionValidationStatus @default(NOT_REQUIRED)
 
-  @@unique([projectId, attemptNo]) // each attempt unique
+  assessment           Assessment?                // optional direct link if mentor graded this submission
+
+  @@unique([projectId, attemptNo])
   @@index([status])
 }
 
 model PlagiarismReport {
-  id               String            @id @default(cuid())
-  createdAt        DateTime          @default(now())
+  id                   String            @id @default(cuid())
+  createdAt            DateTime          @default(now())
 
-  submissionId     String            @unique
-  submission       Submission        @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  submissionId         String            @unique
+  submission           Submission        @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
-  similarityPct    Float
-  status           PlagiarismStatus
-  reasonsJson      Json?             // highlights, matched sources, etc.
-  modelVersion     String?
-  datasetTag       String?
+  similarityPct        Float
+  status               PlagiarismStatus
+  reasonsJson          Json?             // highlights, matched sources, etc.
+  modelVersion         String?
+  datasetTag           String?
+  summary              String?           // AI-generated summary for transparency
 }
 
 // ---------------------- Assessment ---------------------
@@ -299,7 +340,7 @@ model Assessment {
   mentorUserId     String           // who graded
   mentor           User             @relation("AssessmentMentor", fields: [mentorUserId], references: [id])
 
-  status           AssessmentStatus @default(NOT_ASSESSED)
+  status           AssessmentStatus  @default(NOT_ASSESSED)
   totalMarks       Int?
   rubricJson       Json?            // optional rubric breakdown
   remarks          String?
@@ -311,8 +352,26 @@ model Assessment {
   @@index([projectId])
 }
 
+// ---------------------- Weekly Reports -----------------
+model WeeklyReport {
+  id               String     @id @default(cuid())
+  createdAt        DateTime   @default(now())
+
+  teamId           String
+  team             Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  authorUserId     String
+  author           User       @relation(fields: [authorUserId], references: [id])
+
+  weekLabel        String     // e.g., "2025-W12" or "Week 3"
+  content          String     @db.Text // 200 words limit enforced in app layer
+  imageUrls        String[]   // 1–3 URLs, validated in app layer
+
+  @@unique([teamId, weekLabel])
+  @@index([authorUserId])
+}
+
 // ---------------------- Notifications & Email ----------
-// Notification objects
 model Notification {
   id               String               @id @default(cuid())
   createdAt        DateTime             @default(now())
@@ -322,6 +381,7 @@ model Notification {
   channel          NotificationChannel  @default(IN_APP)
   priority         NotificationPriority @default(NORMAL)
 
+  templateKey      String?              // for templated notifications
   createdByUserId  String
   createdBy        User                 @relation(fields: [createdByUserId], references: [id])
 
@@ -329,7 +389,6 @@ model Notification {
   recipients       UserNotification[]
 }
 
-// Per-user delivery & status
 model UserNotification {
   id               String        @id @default(cuid())
   userId           String
@@ -343,7 +402,7 @@ model UserNotification {
 
   @@unique([userId, notificationId])
   @@index([readAt])
-}
+}   
 
 // Bulk email batching (filter → recipients)
 model EmailJob {
@@ -355,7 +414,7 @@ model EmailJob {
   subject          String
   bodyHtml         String
   filterJson       Json        // stores the applied filter (e.g., teams with FLAGGED submissions, etc.)
-  status           String       @default("QUEUED") // QUEUED|SENDING|DONE|FAILED
+  status           String      @default("QUEUED") // QUEUED|SENDING|DONE|FAILED
 
   recipients       EmailJobRecipient[]
 }
@@ -382,12 +441,12 @@ model VerificationToken {
   createdAt        DateTime   @default(now())
   userId           String
   user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   token            String     @unique
   type             String     // EMAIL_VERIFICATION, PASSWORD_RESET, etc.
   expiresAt        DateTime
   usedAt           DateTime?
-  
+
   @@index([token])
   @@index([userId])
 }
@@ -395,20 +454,37 @@ model VerificationToken {
 model AuditLog {
   id               String     @id @default(cuid())
   createdAt        DateTime   @default(now())
-  
+
   userId           String
   user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   action           String     // LOGIN, LOGOUT, CREATE_PROJECT, etc.
   entityType       String?    // Team, Project, Submission, etc.
   entityId         String?    // ID of the affected entity
   metadata         Json?      // additional context
   ipAddress        String?
   userAgent        String?
-  
+
   @@index([userId])
   @@index([action])
   @@index([createdAt])
+}
+
+// ---------------------- External ERP Sync --------------
+model ExternalSyncLog {
+  id               String     @id @default(cuid())
+  createdAt        DateTime   @default(now())
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  erpNumber        String
+  requestPayload   Json?
+  responsePayload  Json?
+  status           String      // SUCCESS | FAILED
+  errorMessage     String?
+
+  @@index([userId, createdAt])
+  @@index([erpNumber])
 }
 
 // ---------------------- RAG / Knowledge Base -----------

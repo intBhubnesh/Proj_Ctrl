@@ -26,7 +26,7 @@ if [ -d "node_modules/@prisma/client" ]; then
     echo "✅ Prisma client is generated"
 else
     echo "⚠️  Generating Prisma client..."
-    npm run db:generate
+    bun run db:generate
 fi
 
 # Check frontend dependencies
@@ -35,7 +35,7 @@ if [ -d "frontend/node_modules" ]; then
     echo "✅ Frontend dependencies installed"
 else
     echo "⚠️  Installing frontend dependencies..."
-    cd frontend && npm install && cd ..
+    cd frontend && bun install && cd ..
 fi
 
 # Check backend dependencies
@@ -60,9 +60,9 @@ echo ""
 echo "🎉 Setup verification complete!"
 echo ""
 echo "To start the application:"
-echo "  npm run dev                 # Start both frontend and backend"
-echo "  npm run dev:frontend        # Start only frontend (port 3000)"
-echo "  npm run dev:backend         # Start only backend (port 8000)"
+echo "  bun run dev                 # Start both frontend and backend"
+echo "  bun run dev:frontend        # Start only frontend (port 3000)"
+echo "  bun run dev:backend         # Start only backend (port 8000)"
 echo ""
 echo "To access:"
 echo "  Frontend: http://localhost:3000"

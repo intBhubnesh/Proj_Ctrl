@@ -1,160 +1,145 @@
-'use client'
+"use client"
 
-import { useState, useEffect } from 'react'
-import { api, endpoints } from '@/lib/api'
-
-type HealthResponse = {
-  status: string
-  message: string
-}
-
-type User = {
-  id: string
-  name: string
-  email: string
-  role: string
-}
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouter } from "next/navigation"
 
 export default function Home() {
-  const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null)
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        
-        // Test backend connection
-        const health = await api.get(endpoints.health)
-        setHealthStatus(health)
-        
-        // Fetch users
-        const usersData = await api.get(endpoints.users)
-        setUsers(usersData)
-        
-        setError(null)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error occurred')
-        console.error('API Error:', err)
-      } finally {
-        setLoading(false)
-      }
+  const userTypes = [
+    {
+      type: 'student',
+      title: 'Student',
+      description: 'Join or create teams, submit projects, and track your progress',
+      icon: '🎓',
+      features: ['Team Management', 'Project Submission', 'Weekly Reports', 'Assessment Tracking'],
+      route: '/auth/login'
+    },
+    {
+      type: 'teacher',
+      title: 'Teacher',
+      description: 'Mentor teams, assess projects, and provide feedback',
+      icon: '👨‍🏫',
+      features: ['Team Mentoring', 'Project Assessment', 'Progress Tracking', 'Feedback System'],
+      route: '/auth/login'
+    },
+    {
+      type: 'admin',
+      title: 'Admin',
+      description: 'Manage teams, mentors, and system-wide assessments',
+      icon: '⚙️',
+      features: ['Team Management', 'Mentor Assignment', 'System Analytics', 'Data Export'],
+      route: '/auth/login'
     }
-
-    fetchData()
-  }, [])
-
-  const createTestUser = async () => {
-    try {
-      const newUser = await api.post(endpoints.users, {
-        name: 'Test User',
-        email: `test${Date.now()}@example.com`,
-        role: 'STUDENT'
-      })
-      setUsers(prev => [...prev, newUser])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create user')
-    }
-  }
+  ]
 
   return (
-    <div className="min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">Project Control System</h1>
-          <p className="text-gray-600">Next.js + Elysia.js + Prisma + PostgreSQL + Tailwind CSS</p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* Header */}
+      <div className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="text-center">
+            <h1 className="text-4xl font-bold text-gray-900">
+              Student Project Management System
+            </h1>
+            <p className="mt-2 text-lg text-gray-600">
+              Streamline project submissions, team collaboration, and assessment processes
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 py-16">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">
+            Choose Your Role
+          </h2>
+          <p className="text-lg text-gray-600">
+            Select your role to access the appropriate dashboard and features
+          </p>
         </div>
 
-        {loading && (
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-2">Loading...</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            <strong>Error:</strong> {error}
-          </div>
-        )}
-
-        {!loading && !error && (
-          <div className="space-y-6">
-            {/* Backend Health Status */}
-            <div className="bg-white shadow-md rounded-lg p-6">
-              <h2 className="text-2xl font-semibold mb-4">Backend Status</h2>
-              {healthStatus && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-green-700 font-medium">{healthStatus.message}</span>
+        <div className="grid md:grid-cols-3 gap-8">
+          {userTypes.map((userType) => (
+            <Card 
+              key={userType.type} 
+              className="hover:shadow-xl transition-shadow cursor-pointer group"
+              onClick={() => router.push(userType.route)}
+            >
+              <CardHeader className="text-center">
+                <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 group-hover:bg-blue-200 transition-colors">
+                  <span className="text-3xl">{userType.icon}</span>
                 </div>
-              )}
-            </div>
-
-            {/* Users Section */}
-            <div className="bg-white shadow-md rounded-lg p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-semibold">Users ({users.length})</h2>
-                <button
-                  onClick={createTestUser}
-                  className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                >
-                  Add Test User
-                </button>
-              </div>
-              
-              {users.length === 0 ? (
-                <p className="text-gray-500">No users found. Try creating a test user!</p>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {users.map((user) => (
-                    <div key={user.id} className="border rounded-lg p-4">
-                      <h3 className="font-semibold text-lg">{user.name}</h3>
-                      <p className="text-gray-600">{user.email}</p>
-                      <span className={`inline-block px-2 py-1 rounded text-xs font-semibold mt-2 ${
-                        user.role === 'ADMIN' ? 'bg-red-100 text-red-800' :
-                        user.role === 'FACULTY' ? 'bg-blue-100 text-blue-800' :
-                        'bg-green-100 text-green-800'
-                      }`}>
-                        {user.role}
-                      </span>
-                    </div>
+                <CardTitle className="text-2xl">{userType.title}</CardTitle>
+                <CardDescription className="text-base">
+                  {userType.description}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 mb-6">
+                  {userType.features.map((feature, index) => (
+                    <li key={index} className="flex items-center text-sm text-gray-600">
+                      <svg className="w-4 h-4 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {feature}
+                    </li>
                   ))}
-                </div>
-              )}
-            </div>
+                </ul>
+                <Button 
+                  className="w-full group-hover:bg-blue-700 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    router.push(userType.route)
+                  }}
+                >
+                  Continue as {userType.title}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
-            {/* Tech Stack Info */}
-            <div className="bg-white shadow-md rounded-lg p-6">
-              <h2 className="text-2xl font-semibold mb-4">Tech Stack</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-gray-50 rounded">
-                  <div className="text-2xl mb-2">⚛️</div>
-                  <div className="font-semibold">Next.js</div>
-                  <div className="text-sm text-gray-600">Frontend</div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded">
-                  <div className="text-2xl mb-2">🦊</div>
-                  <div className="font-semibold">Elysia.js</div>
-                  <div className="text-sm text-gray-600">Backend</div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded">
-                  <div className="text-2xl mb-2">🔍</div>
-                  <div className="font-semibold">Prisma</div>
-                  <div className="text-sm text-gray-600">ORM</div>
-                </div>
-                <div className="text-center p-4 bg-gray-50 rounded">
-                  <div className="text-2xl mb-2">🐘</div>
-                  <div className="font-semibold">PostgreSQL</div>
-                  <div className="text-sm text-gray-600">Database</div>
-                </div>
-              </div>
-            </div>
+        {/* Features Section */}
+        <div className="mt-20">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              Key Features
+            </h2>
+            <p className="text-lg text-gray-600">
+              Everything you need for effective project management
+            </p>
           </div>
-        )}
-      </main>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { icon: '👥', title: 'Team Collaboration', desc: 'Form teams and collaborate effectively' },
+              { icon: '📋', title: 'Project Submission', desc: 'Submit and track project progress' },
+              { icon: '🔍', title: 'Plagiarism Check', desc: 'Automated plagiarism detection' },
+              { icon: '📊', title: 'Assessment Tools', desc: 'Comprehensive evaluation system' }
+            ].map((feature, index) => (
+              <Card key={index} className="text-center">
+                <CardContent className="pt-6">
+                  <div className="text-3xl mb-3">{feature.icon}</div>
+                  <h3 className="font-semibold mb-2">{feature.title}</h3>
+                  <p className="text-sm text-gray-600">{feature.desc}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="bg-white border-t">
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="text-center text-gray-600">
+            <p>&copy; 2024 Student Project Management System. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }

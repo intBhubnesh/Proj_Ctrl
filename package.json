@@ -1,19 +1,19 @@
 {
-  "name": "proj-ctrl",
-  "private": true,
-  "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "cd frontend && npm run dev",
-    "dev:backend": "cd backend && bun run index.ts",
-    "build": "cd frontend && npm run build",
-    "db:generate": "npx prisma generate",
-    "db:migrate": "npx prisma migrate dev",
-    "db:studio": "npx prisma studio",
-    "db:seed": "cd backend && bun run seed.ts"
-  },
-  "devDependencies": {
-    "@prisma/client": "^6.13.0",
-    "concurrently": "^8.2.2",
-    "prisma": "^6.14.0"
-  }
+    "name": "proj-ctrl",
+    "private": true,
+    "scripts": {
+        "dev": "concurrently \"bun run dev:backend\" \"bun run dev:frontend\"",
+        "dev:frontend": "cd frontend && bun run dev",
+        "dev:backend": "cd backend && bun run index.ts",
+        "build": "cd frontend && bun run build",
+        "db:generate": "bunx prisma generate",
+        "db:migrate": "bunx prisma migrate dev",
+        "db:studio": "bunx prisma studio",
+        "db:seed": "cd backend && bun run seed.ts"
+    },
+    "devDependencies": {
+        "@prisma/client": "^6.13.0",
+        "concurrently": "^8.2.2",
+        "prisma": "^6.14.0"
+    }
 }

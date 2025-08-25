@@ -15,4 +15,41 @@
    - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 720ms
+ ✓ Ready in 775ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1373ms
+ GET / 200 in 1557ms
+ ✓ Compiled /favicon.ico in 103ms
+ GET /favicon.ico?favicon.0b3bf435.ico 200 in 375ms
+ ✓ Compiled /_not-found/page in 192ms
+ GET /create-team 404 in 259ms
+ ✓ Compiled /student/create-team in 196ms
+ GET /student/create-team 200 in 256ms
+ ✓ Compiled in 73ms
+ GET /student/create-team 200 in 100ms
+ GET /student/create-team 200 in 25ms
+ ✓ Compiled in 71ms
+ ✓ Compiled /student/project-submission in 200ms
+ GET /student/project-submission 200 in 306ms
+
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to /var/folders/1n/k8_hb_tn2fs1sjfp_rzlfffh0000gn/T/next-panic-b08483a108b40b9e28ef8d30488c6aa1.log.
+
+To help make Turbopack better, report this error by clicking here: https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20Next.js%20package%20not%20found&body=Turbopack%20version%3A%20%60v15.4.2-canary.54-9-gff756b2c7%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0ATurbopack%20Error%3A%20Next.js%20package%20not%20found%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace
+-----
+
+Error [TurbopackInternalError]: Next.js package not found
+
+Debug info:
+- Execution of get_entrypoints_with_issues_operation failed
+- Execution of EntrypointsOperation::new failed
+- Execution of Project::entrypoints failed
+- Execution of AppProject::routes failed
+- Execution of directory_tree_to_entrypoints_internal failed
+- Execution of directory_tree_to_loader_tree failed
+- Execution of get_next_package failed
+- Next.js package not found
+    at <unknown> (TurbopackInternalError: Next.js package not found) {
+  location: undefined
+}
+[?25h
