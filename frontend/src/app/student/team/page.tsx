@@ -18,7 +18,9 @@ interface TeamMember {
     role: string
     studentProfile: {
         id: string
+        userId: string
         user: {
+            id: string
             name: string | null
             email: string
         }
@@ -407,6 +409,8 @@ export default function TeamManagementPage() {
                                         .join("")
                                         .toUpperCase() || "?"
 
+                                    const isCurrentUser = session?.user?.id === member.studentProfile.userId
+
                                     return (
                                         <div key={member.id} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
                                             <Avatar>
@@ -415,8 +419,11 @@ export default function TeamManagementPage() {
                                                 </AvatarFallback>
                                             </Avatar>
                                             <div className="flex-1">
-                                                <p className="font-semibold">
+                                                <p className="font-semibold flex items-center gap-2">
                                                     {member.studentProfile.user.name || "Unknown"}
+                                                    {isCurrentUser && (
+                                                        <Badge variant="outline" className="text-xs">you</Badge>
+                                                    )}
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">
                                                     {member.role === "LEADER" ? "leader" : member.role === "MEMBER" ? "registered" : "not registered"}

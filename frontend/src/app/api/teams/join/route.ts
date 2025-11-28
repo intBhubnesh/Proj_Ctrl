@@ -31,10 +31,15 @@ export async function POST(req: NextRequest) {
             )
         }
 
-        // Get student profile
+        // Get student profile with active memberships
         const studentProfile = await prisma.studentProfile.findUnique({
             where: { userId: session.user.id },
-            include: { currentTeam: true }
+            include: {
+                currentTeam: true,
+                memberships: {
+                    where: { leftAt: null }
+                }
+            }
         })
 
         if (!studentProfile) {
@@ -44,11 +49,17 @@ export async function POST(req: NextRequest) {
             )
         }
 
-        // Check if student is already in a team
-        if (studentProfile.currentTeamId) {
+        // Check if student has any active memberships
+        if (studentProfile.memberships && studentProfile.memberships.length > 0) {
+            console.log('❌ Student already has active memberships:', {
+                studentId: studentProfile.id,
+                currentTeamId: studentProfile.currentTeamId,
+                activeMemberships: studentProfile.memberships.length
+            })
             return NextResponse.json({
                 error: "You are already part of a team. Leave your current team first.",
-                type: "ALREADY_IN_TEAM"
+                type: "ALREADY_IN_TEAM",
+                currentTeamId: studentProfile.currentTeamId
             }, { status: 400 })
         }
 
@@ -95,6 +106,40 @@ export async function POST(req: NextRequest) {
             }, { status: 400 })
         }
 
+        // Check if there's an existing membership for this specific team
+        const existingMembership = await prisma.teamMembership.findFirst({
+            where: {
+                teamId: team.id,
+                studentProfileId: studentProfile.id,
+                leftAt: null
+            }
+        })
+
+        if (existingMembership) {
+            console.log('ℹ️ Student is already a member of this team:', {
+                studentId: studentProfile.id,
+                teamId: team.id,
+                teamName: team.name,
+                membershipId: existingMembership.id
+            })
+            return NextResponse.json({
+                error: "You are already a member of this team.",
+                type: "ALREADY_MEMBER",
+                team: {
+                    id: team.id,
+                    name: team.name,
+                    code: team.code
+                }
+            }, { status: 400 })
+        }
+
+        console.log('✅ Joining team:', {
+            studentId: studentProfile.id,
+            teamId: team.id,
+            teamName: team.name,
+            currentMembers: currentMemberCount
+        })
+
         // Join team with transaction
         const result = await prisma.$transaction(async (tx) => {
             // Create team membership
@@ -131,15 +176,16 @@ export async function POST(req: NextRequest) {
 
         // Handle unique constraint violations
         if (error.code === 'P2002') {
-            return NextResponse.json(
-                { error: "You are already a member of this team." },
-                { status: 400 }
-            )
+            return NextResponse.json({
+                error: "You are already a member of this team.",
+                type: "ALREADY_MEMBER"
+            }, { status: 400 })
         }
 
-        return NextResponse.json(
-            { error: "Failed to join team" },
-            { status: 500 }
-        )
+        return NextResponse.json({
+            error: "Failed to join team. Please try again.",
+            type: "SERVER_ERROR",
+            message: error.message
+        }, { status: 500 })
     }
 }

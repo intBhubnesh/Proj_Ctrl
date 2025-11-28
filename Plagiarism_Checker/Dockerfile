@@ -15,6 +15,10 @@ COPY main.py .
 
 # Create a non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser
+
+# Create storage directory and set permissions
+RUN mkdir -p /app/storage && chown -R appuser:appuser /app/storage
+
 USER appuser
 
 # Expose FastAPI port

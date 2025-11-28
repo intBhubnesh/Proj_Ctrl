@@ -1,104 +1,64 @@
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_pinecone.vectorstores import PineconeVectorStore
-from pinecone import Pinecone,ServerlessSpec
-from langchain_core.documents import Document
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 import os
 import fitz
 import io
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import SecretStr
 import logging
 from typing import Optional
+import hashlib
+import json
+from pathlib import Path
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
-openai_api_key = os.getenv("OPENAI_API")
-pinecone_api_key = os.getenv("PINECONE_API_KEY") or os.getenv("PINECONE_API")
 
-# Validate API keys
-if not openai_api_key:
-    raise ValueError("OPENAI_API environment variable is required")
-if not pinecone_api_key:
-    raise ValueError("PINECONE_API_KEY or PINECONE_API environment variable is required")
+# Simple file-based storage for documents
+STORAGE_DIR = Path("/app/storage")
+STORAGE_DIR.mkdir(exist_ok=True)
+DOCUMENTS_FILE = STORAGE_DIR / "documents.json"
 
-model = ChatOpenAI(api_key=SecretStr(openai_api_key), model="gpt-4o-mini", temperature=0)
-embeddings = OpenAIEmbeddings(api_key=SecretStr(openai_api_key), model="text-embedding-3-small")
-parser = StrOutputParser()
+# Initialize document storage
+if not DOCUMENTS_FILE.exists():
+    DOCUMENTS_FILE.write_text("[]")
+    logger.info("Initialized document storage")
 
-prompt = PromptTemplate(
-    template="""
-You are a summarization assistant for student SRS documents.
+def load_documents():
+    """Load stored documents from JSON file."""
+    try:
+        with open(DOCUMENTS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load documents: {e}")
+        return []
 
-Only consider the following **key sections** from the text:
-- 1.1 Purpose
-- 1.4 Product Scope
-- 2.1 Product Perspective
-- 2.2 Product Functions
-- 4.1 System Features
+def save_documents(documents):
+    """Save documents to JSON file."""
+    try:
+        with open(DOCUMENTS_FILE, 'w') as f:
+            json.dump(documents, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save documents: {e}")
 
-Ignore sections like UI details, hardware specs, legal, glossary, etc.
+def calculate_text_hash(text: str) -> str:
+    """Calculate SHA256 hash of text."""
+    return hashlib.sha256(text.encode()).hexdigest()
 
-**Task**:
-1. Create a concise and semantically rich summary (5–7 bullet points) **without including explicit lists of skills or technologies**.
-2. Extract the skills/technologies separately as a comma-separated list.
-
-Summary should cover:
-- Project title
-- Goal or problem being solved
-- Main features or modules
-- Any unique or innovative aspects
-
-Skills should be:
-- Programming languages
-- Frameworks
-- Libraries
-- Tools
-- Cloud platforms
-- Databases
-
-Format your answer as:
-SUMMARY:
-<summary text>
-
-SKILLS:
-<comma-separated skills list>
-
-SRS Text:
-{text}
-""",
-    input_variables=["text"]
-)
-
-# Vector Store setup with error handling
-try:
-    pc = Pinecone(api_key=pinecone_api_key)
-    index_name = "plagiarism-detection"
-
-    if not pc.has_index(index_name):
-        pc.create_index(
-            name=index_name,
-            dimension=1536,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-        )
-        logger.info(f"Created new Pinecone index: {index_name}")
-
-    index = pc.Index(index_name)
-    vector_store = PineconeVectorStore(index=index, embedding=embeddings)
-    logger.info("Successfully connected to Pinecone vector store")
-
-except Exception as e:
-    logger.error(f"Failed to initialize Pinecone: {e}")
-    raise
-
-chain = prompt | model | parser
+def extract_key_sections(text: str) -> str:
+    """
+    Extract key sections from SRS document.
+    This is a simplified version that just cleans the text.
+    """
+    # Remove excessive whitespace
+    text = ' '.join(text.split())
+    # Take first 5000 characters for comparison (to avoid memory issues)
+    return text[:5000]
 
 def extract_full_pdf_text(file_bytes: bytes) -> str:
     """
@@ -167,30 +127,25 @@ def validate_file(file: UploadFile) -> None:
     if file.content_type and file.content_type not in ['application/pdf']:
         raise HTTPException(status_code=400, detail="Invalid content type. Expected application/pdf")
 
-def parse_chain_output(output: str) -> tuple[str, str]:
+def calculate_similarity(text1: str, text2: str) -> float:
     """
-    Parse chain output into summary and skills.
+    Calculate cosine similarity between two texts using TF-IDF.
 
     Args:
-        output: Raw chain output
+        text1: First text
+        text2: Second text
 
     Returns:
-        Tuple of (summary, skills)
+        Similarity score between 0 and 1
     """
     try:
-        parts = output.split("SKILLS:")
-        summary_text = parts[0].replace("SUMMARY:", "").strip()
-        skills = parts[1].strip() if len(parts) > 1 else ""
-
-        # Ensure we have some content
-        if not summary_text:
-            raise ValueError("No summary found in chain output")
-
-        return summary_text, skills
-
+        vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        return float(similarity)
     except Exception as e:
-        logger.error(f"Failed to parse chain output: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process document content")
+        logger.error(f"Similarity calculation failed: {e}")
+        return 0.0
 
 app = FastAPI(
     title="Plagiarism Detection API",
@@ -225,61 +180,55 @@ async def check_plagiarism(file: UploadFile = File(...)):
         # Extract text from PDF
         full_text = extract_full_pdf_text(file_bytes)
 
-        # Process with AI chain
-        try:
-            output = chain.invoke({"text": full_text})
-        except Exception as e:
-            logger.error(f"Chain processing failed: {e}")
-            raise HTTPException(status_code=500, detail="Failed to process document with AI model")
+        # Extract key sections and calculate hash
+        processed_text = extract_key_sections(full_text)
+        text_hash = calculate_text_hash(processed_text)
 
-        # Parse chain output
-        summary_text, skills = parse_chain_output(output)
+        # Load existing documents
+        documents = load_documents()
 
-        # Create document for vector store
-        new_doc = Document(
-            page_content=summary_text,
-            metadata={
-                "source_file": file.filename,
-                "skills": skills,
-                "file_size": len(file_bytes)
-            }
-        )
+        # Check for exact duplicate first
+        for doc in documents:
+            if doc.get("hash") == text_hash:
+                logger.warning(f"Exact duplicate found: {file.filename} matches {doc.get('filename')}")
+                return JSONResponse({
+                    "plagiarism_detected": True,
+                    "max_score": 1.0,
+                    "matched_files": [doc.get("filename")],
+                    "threshold": 0.60,
+                    "document_added": False,
+                    "message": "Exact duplicate detected"
+                })
 
-        # Search for similar documents
-        try:
-            results = vector_store.similarity_search_with_score(summary_text, k=3)
-        except Exception as e:
-            logger.error(f"Vector search failed: {e}")
-            raise HTTPException(status_code=500, detail="Failed to search for similar documents")
-
-        # Analyze results
+        # Calculate similarity with existing documents
         plagiarism_detected = False
         matched_files = []
-        max_score = 0
-        threshold = 0.80  # Updated to 80% threshold
+        max_score = 0.0
+        threshold = 0.60  # 60% threshold as per requirements
 
-        for doc, score in results:
-            if score > max_score:
-                max_score = score
-            if score >= threshold:
+        for doc in documents:
+            similarity = calculate_similarity(processed_text, doc.get("text", ""))
+            logger.info(f"Similarity with {doc.get('filename')}: {similarity:.4f}")
+
+            if similarity > max_score:
+                max_score = similarity
+
+            if similarity >= threshold:
                 plagiarism_detected = True
-                source_file = doc.metadata.get("source_file")
-                if source_file and source_file not in matched_files:
-                    matched_files.append(source_file)
+                if doc.get("filename") not in matched_files:
+                    matched_files.append(doc.get("filename"))
 
-        # Add document to vector store if no plagiarism detected
+        # Add document to storage if no plagiarism detected
         if not plagiarism_detected:
-            try:
-                vector_store.add_documents([new_doc])
-                logger.info(f"Added document to vector store: {file.filename}")
-
-                # Log index stats
-                stats = index.describe_index_stats()
-                logger.info(f"Pinecone index stats: {stats}")
-
-            except Exception as e:
-                logger.error(f"Failed to add document to vector store: {e}")
-                # Don't raise exception here - plagiarism check was successful
+            new_doc = {
+                "filename": file.filename,
+                "text": processed_text,
+                "hash": text_hash,
+                "file_size": len(file_bytes)
+            }
+            documents.append(new_doc)
+            save_documents(documents)
+            logger.info(f"Added document to storage: {file.filename}")
 
         # Prepare response
         response_data = {

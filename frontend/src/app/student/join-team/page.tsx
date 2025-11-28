@@ -46,8 +46,21 @@ export default function JoinTeamPage() {
                     })
                 } else if (data.type === "ALREADY_IN_TEAM") {
                     toast.error("Already in a Team", {
-                        description: "You are already part of a team. Please leave your current team first."
+                        description: "You are already part of a team. Please leave your current team first.",
+                        action: {
+                            label: "View Team",
+                            onClick: () => router.push("/student/team")
+                        }
                     })
+                } else if (data.type === "ALREADY_MEMBER") {
+                    toast.info("Already a Member", {
+                        description: `You are already a member of ${data.team?.name || 'this team'}.`,
+                        action: {
+                            label: "View Team",
+                            onClick: () => router.push("/student/team")
+                        }
+                    })
+                    setTimeout(() => router.push("/student/team"), 2000)
                 } else {
                     toast.error("Failed to join team", {
                         description: data.error || "An error occurred while joining the team"

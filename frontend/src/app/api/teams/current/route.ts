@@ -1,26 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/app/api/auth/[...nextauth]/route"
+import { requireStudent } from "@/lib/auth-helpers"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(req: NextRequest) {
     try {
-        const session = await getServerSession(authOptions)
-
-        if (!session || !session.user) {
-            return NextResponse.json(
-                { error: "Unauthorized" },
-                { status: 401 }
-            )
-        }
-
-        // Verify user is a student
-        if (session.user.role !== 'STUDENT') {
-            return NextResponse.json(
-                { error: "Only students can view team details" },
-                { status: 403 }
-            )
-        }
+        const { session, error } = await requireStudent()
+        if (error) return error
 
         // Get student profile with current team
         const studentProfile = await prisma.studentProfile.findUnique({
@@ -96,7 +81,9 @@ export async function GET(req: NextRequest) {
                 role: m.role,
                 studentProfile: {
                     id: m.studentProfile.id,
+                    userId: m.studentProfile.userId,
                     user: {
+                        id: m.studentProfile.user.id,
                         name: m.studentProfile.user.name,
                         email: m.studentProfile.user.email,
                     }

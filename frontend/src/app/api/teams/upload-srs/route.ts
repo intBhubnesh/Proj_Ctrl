@@ -147,8 +147,7 @@ export async function POST(req: NextRequest) {
                     teamId,
                     technology: "Pending",
                     domain: "Pending",
-                    problemStatement: "Pending",
-                    title: "Project Submission"
+                    problemStatement: "Pending"
                 }
             })
         }
