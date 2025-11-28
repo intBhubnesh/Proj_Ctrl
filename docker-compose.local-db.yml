@@ -1,0 +1,115 @@
+version: "3.9"
+
+# This docker-compose file includes a local PostgreSQL database
+# Use this if you want to run everything locally without cloud database
+# Usage: docker compose -f docker-compose.local-db.yml up
+
+services:
+  # PostgreSQL Database (Local)
+  postgres:
+    image: postgres:16-alpine
+    container_name: brainflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: college_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - brainflow-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U admin -d college_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Plagiarism Detection Service
+  plagiarism-checker:
+    build:
+      context: ./Plagiarism_Checker
+      dockerfile: Dockerfile
+    container_name: brainflow-plagiarism
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      - OPENAI_API=${OPENAI_API}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PYTHONUNBUFFERED=1
+    networks:
+      - brainflow-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:5000/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Backend (Elysia)
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: brainflow-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Use local PostgreSQL container
+      - DATABASE_URL=postgresql://admin:password@postgres:5432/college_db
+      - DIRECT_URL=postgresql://admin:password@postgres:5432/college_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - brainflow-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: brainflow-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Use local PostgreSQL container
+      - DATABASE_URL=postgresql://admin:password@postgres:5432/college_db
+      - DIRECT_URL=postgresql://admin:password@postgres:5432/college_db
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - PLAGIARISM_SERVICE_URL=http://plagiarism-checker:5000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      plagiarism-checker:
+        condition: service_started
+      backend:
+        condition: service_started
+    networks:
+      - brainflow-network
+    volumes:
+      - ./frontend/public/uploads:/app/public/uploads
+
+networks:
+  brainflow-network:
+    driver: bridge
+
+volumes:
+  pgdata:
+    driver: local
+

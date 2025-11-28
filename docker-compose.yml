@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  # Plagiarism Detection Service
+  plagiarism-checker:
+    build:
+      context: ./Plagiarism_Checker
+      dockerfile: Dockerfile
+    container_name: brainflow-plagiarism
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      - OPENAI_API=${OPENAI_API}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PYTHONUNBUFFERED=1
+    networks:
+      - brainflow-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:5000/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Backend (Elysia)
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: brainflow-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - DIRECT_URL=${DIRECT_URL}
+    networks:
+      - brainflow-network
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: brainflow-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - DIRECT_URL=${DIRECT_URL}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - PLAGIARISM_SERVICE_URL=http://plagiarism-checker:5000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=production
+    depends_on:
+      - plagiarism-checker
+      - backend
+    networks:
+      - brainflow-network
+    volumes:
+      - ./frontend/public/uploads:/app/public/uploads
+
+networks:
+  brainflow-network:
+    driver: bridge

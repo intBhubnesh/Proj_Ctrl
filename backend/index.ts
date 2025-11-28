@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { cors } from '@elysiajs/cors'
-import { PrismaClient, Role } from '../node_modules/@prisma/client'
+import { PrismaClient, UserRole } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
@@ -11,7 +11,7 @@ const app = new Elysia()
   }))
   .get('/', () => 'Hello from Elysia!')
   .get('/api/health', () => ({ status: 'ok', message: 'Backend is running' }))
-  
+
   // User routes
   .get('/api/users', async () => {
     const users = await prisma.user.findMany({
@@ -22,19 +22,19 @@ const app = new Elysia()
     })
     return users
   })
-  
+
   .post('/api/users', async ({ body }: { body: any }) => {
     const { name, email, role } = body
     const user = await prisma.user.create({
       data: {
         name,
         email,
-        role: role as Role
+        role: role as UserRole
       }
     })
     return user
   })
-  
+
   // Project routes
   .get('/api/projects', async () => {
     const projects = await prisma.projectDetail.findMany({
@@ -46,19 +46,19 @@ const app = new Elysia()
     })
     return projects
   })
-  
+
   // Domain routes
   .get('/api/domains', async () => {
     const domains = await prisma.domain.findMany()
     return domains
   })
-  
+
   // Technology routes
   .get('/api/technologies', async () => {
     const technologies = await prisma.technology.findMany()
     return technologies
   })
-  
+
   // Team routes
   .get('/api/teams', async () => {
     const teams = await prisma.team.findMany({
@@ -73,7 +73,7 @@ const app = new Elysia()
     })
     return teams
   })
-  
+
   .listen(8000)
 
 console.log(`🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`)

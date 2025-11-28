@@ -1,0 +1,431 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationTokenAuth {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id                      String                 @id @default(cuid())
+  name                    String?
+  email                   String                 @unique
+  collegeEmail            String?
+  createdAt               DateTime               @default(now())
+  enrollmentNo            String?                @unique
+  externalSyncStatus      String                 @default("PENDING")
+  syncedAt                DateTime?
+  updatedAt               DateTime               @updatedAt
+  role                    UserRole?
+  emailVerified           DateTime?
+  image                   String?
+  password                String?
+  accounts                Account[]
+  adminProfile            AdminProfile?
+  assessments             Assessment[]           @relation("AssessmentMentor")
+  auditLogs               AuditLog[]
+  createdEmailJobs        EmailJob[]
+  emailJobs               EmailJobRecipient[]
+  externalSyncLogs        ExternalSyncLog[]
+  createdNotifications    Notification[]
+  uploadedFiles           ProjectFile[]
+  sessions                Session[]
+  studentProfile          StudentProfile?
+  submissions             Submission[]           @relation("SubmissionUser")
+  teacherProfile          TeacherProfile?
+  currentMentorForTeams   Team[]                 @relation("CurrentMentorOnTeam")
+  ledTeams                Team?                  @relation("TeamLeader")
+  assignedByMentorHistory TeamMentorAssignment[] @relation("AssignedByAdmin")
+  assignedMentorTeams     TeamMentorAssignment[] @relation("MentorUser")
+  userNotifications       UserNotification[]
+  verificationTokens      VerificationToken[]
+  weeklyReports           WeeklyReport[]
+
+  @@index([role])
+}
+
+model StudentProfile {
+  id            String           @id @default(cuid())
+  userId        String           @unique
+  department    String
+  semester      Int?
+  division      String?
+  institution   String?
+  course        String?
+  currentTeamId String?
+  currentTeam   Team?            @relation(fields: [currentTeamId], references: [id])
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memberships   TeamMembership[]
+
+  @@index([department])
+  @@index([currentTeamId])
+}
+
+model TeacherProfile {
+  id           String  @id @default(cuid())
+  userId       String  @unique
+  expertise    String?
+  technologies String?
+  department   String?
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Team {
+  id                 String                 @id @default(cuid())
+  name               String
+  code               String                 @unique
+  createdAt          DateTime               @default(now())
+  currentMentorId    String?
+  department         String
+  latestAssessmentId String?                @unique
+  leaderUserId       String                 @unique
+  updatedAt          DateTime               @updatedAt
+  isValidated        Boolean                @default(false)
+  submittedAt        DateTime?
+  validatedAt        DateTime?
+  isVerified         Boolean                @default(false)
+  project            Project?
+  currentStudents    StudentProfile[]
+  currentMentor      User?                  @relation("CurrentMentorOnTeam", fields: [currentMentorId], references: [id])
+  latestAssessment   Assessment?            @relation(fields: [latestAssessmentId], references: [id])
+  leader             User                   @relation("TeamLeader", fields: [leaderUserId], references: [id])
+  memberships        TeamMembership[]
+  mentorAssignments  TeamMentorAssignment[]
+  weeklyReports      WeeklyReport[]
+
+  @@index([currentMentorId])
+  @@index([department])
+}
+
+model TeamMembership {
+  id                 String         @id @default(cuid())
+  teamId             String
+  studentProfileId   String
+  role               TeamMemberRole @default(MEMBER)
+  memberDeclaredRole String?
+  joinedAt           DateTime       @default(now())
+  leftAt             DateTime?
+  studentProfile     StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  team               Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, studentProfileId, joinedAt])
+  @@index([studentProfileId])
+}
+
+model TeamMentorAssignment {
+  id               String    @id @default(cuid())
+  teamId           String
+  mentorUserId     String
+  assignedByUserId String
+  assignedAt       DateTime  @default(now())
+  endedAt          DateTime?
+  assignedBy       User      @relation("AssignedByAdmin", fields: [assignedByUserId], references: [id])
+  mentor           User      @relation("MentorUser", fields: [mentorUserId], references: [id])
+  team             Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([mentorUserId])
+  @@index([teamId, assignedAt])
+}
+
+model Project {
+  id               String       @id @default(cuid())
+  teamId           String       @unique
+  technology       String
+  domain           String
+  problemStatement String
+  repoUrl          String?
+  srsReportId      String?
+  pptUrl           String?
+  assessments      Assessment[]
+  srsReport        ProjectFile? @relation("ProjectSRS", fields: [srsReportId], references: [id])
+  team             Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  submissions      Submission[]
+
+  @@index([domain])
+}
+
+model ProjectFile {
+  id               String       @id @default(cuid())
+  createdAt        DateTime     @default(now())
+  storageUrl       String
+  fileName         String
+  mimeType         String
+  sizeBytes        Int
+  sha256           String?
+  uploadedByUserId String
+  srsInProjects    Project[]    @relation("ProjectSRS")
+  uploadedBy       User         @relation(fields: [uploadedByUserId], references: [id])
+  submissions      Submission[]
+}
+
+model Submission {
+  id                 String                       @id @default(cuid())
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  projectId          String
+  submittedByUserId  String
+  attemptNo          Int
+  status             SubmissionStatus             @default(PENDING_CHECK)
+  reportFileId       String?
+  repoUrl            String?
+  notes              String?
+  uniqueContribution String?
+  contributionStatus ContributionValidationStatus @default(NOT_REQUIRED)
+  assessment         Assessment?
+  plagiarismReport   PlagiarismReport?
+  project            Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportFile         ProjectFile?                 @relation(fields: [reportFileId], references: [id])
+  submittedBy        User                         @relation("SubmissionUser", fields: [submittedByUserId], references: [id])
+
+  @@unique([projectId, attemptNo])
+  @@index([status])
+}
+
+model PlagiarismReport {
+  id            String           @id @default(cuid())
+  createdAt     DateTime         @default(now())
+  submissionId  String           @unique
+  similarityPct Float
+  status        PlagiarismStatus
+  reasonsJson   Json?
+  modelVersion  String?
+  datasetTag    String?
+  summary       String?
+  submission    Submission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+}
+
+model Assessment {
+  id            String           @id @default(cuid())
+  createdAt     DateTime         @default(now())
+  mentorUserId  String
+  projectId     String
+  remarks       String?
+  rubricJson    Json?
+  status        AssessmentStatus @default(NOT_ASSESSED)
+  submissionId  String?          @unique
+  totalMarks    Int?
+  updatedAt     DateTime         @updatedAt
+  mentor        User             @relation("AssessmentMentor", fields: [mentorUserId], references: [id])
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  submission    Submission?      @relation(fields: [submissionId], references: [id])
+  latestForTeam Team?
+
+  @@index([mentorUserId])
+  @@index([projectId])
+}
+
+model WeeklyReport {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  teamId       String
+  authorUserId String
+  weekLabel    String
+  content      String
+  imageUrls    String[]
+  author       User     @relation(fields: [authorUserId], references: [id])
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, weekLabel])
+  @@index([authorUserId])
+}
+
+model Notification {
+  id              String               @id @default(cuid())
+  createdAt       DateTime             @default(now())
+  title           String
+  message         String
+  channel         NotificationChannel  @default(IN_APP)
+  priority        NotificationPriority @default(NORMAL)
+  templateKey     String?
+  createdByUserId String
+  createdBy       User                 @relation(fields: [createdByUserId], references: [id])
+  recipients      UserNotification[]
+}
+
+model UserNotification {
+  id             String       @id @default(cuid())
+  userId         String
+  notificationId String
+  readAt         DateTime?
+  deliveredAt    DateTime?
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationId])
+  @@index([readAt])
+}
+
+model EmailJob {
+  id              String              @id @default(cuid())
+  createdAt       DateTime            @default(now())
+  createdByUserId String
+  subject         String
+  bodyHtml        String
+  filterJson      Json
+  status          String              @default("QUEUED")
+  createdBy       User                @relation(fields: [createdByUserId], references: [id])
+  recipients      EmailJobRecipient[]
+}
+
+model EmailJobRecipient {
+  id           String    @id @default(cuid())
+  emailJobId   String
+  userId       String
+  sentAt       DateTime?
+  status       String    @default("PENDING")
+  errorMessage String?
+  emailJob     EmailJob  @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([emailJobId, userId])
+  @@index([status])
+}
+
+model VerificationToken {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  userId    String
+  token     String    @unique
+  type      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  userId     String
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model ExternalSyncLog {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  userId          String
+  erpNumber       String
+  requestPayload  Json?
+  responsePayload Json?
+  status          String
+  errorMessage    String?
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([erpNumber])
+}
+
+model KnowledgeBaseDoc {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  title      String
+  sourceType String
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum TeamMemberRole {
+  LEADER
+  MEMBER
+}
+
+enum SubmissionStatus {
+  PENDING_CHECK
+  CHECKING
+  CLEAN
+  FLAGGED
+  RESUBMIT_REQUIRED
+  FINALIZED
+}
+
+enum PlagiarismStatus {
+  CLEAN
+  SUSPICIOUS
+  PLAGIARIZED
+}
+
+enum AssessmentStatus {
+  NOT_ASSESSED
+  IN_REVIEW
+  GRADED
+  LOCKED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum ContributionValidationStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}

@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 
 interface TeamMember {
     id: string
+    userId: string
     name: string
     email: string
     role: string
@@ -16,9 +17,7 @@ interface TeamMember {
 }
 
 export default function ProjectSubmissionPage() {
-    const [teamMembers, setTeamMembers] = useState<TeamMember[]>([
-        { id: "1", name: "John Doe", email: "john@example.com", role: "", isLeader: true }
-    ])
+    const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
     const [projectData, setProjectData] = useState({
         technology: "",
         domain: "",
@@ -27,7 +26,44 @@ export default function ProjectSubmissionPage() {
         pptLink: ""
     })
     const [isLoading, setIsLoading] = useState(false)
+    const [error, setError] = useState("")
+    const [validationError, setValidationError] = useState("")
     const router = useRouter()
+
+    // Fetch team members on mount
+    useEffect(() => {
+        fetchTeamMembers()
+    }, [])
+
+    const fetchTeamMembers = async () => {
+        try {
+            const response = await fetch('/api/teams/current')
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to fetch team')
+            }
+
+            if (!data.hasTeam) {
+                router.push('/student/team-setup')
+                return
+            }
+
+            // Map team members to component format
+            const members: TeamMember[] = data.team.members.map((m: any) => ({
+                id: m.id,
+                userId: m.userId,
+                name: m.name,
+                email: m.email,
+                role: m.declaredRole || "",
+                isLeader: m.role === 'LEADER'
+            }))
+
+            setTeamMembers(members)
+        } catch (err: any) {
+            setError(err.message || 'Failed to load team members')
+        }
+    }
 
     const roles = ["Frontend Developer", "Backend Developer", "UI/UX Designer", "Project Manager", "Database Administrator", "DevOps Engineer"]
 
@@ -47,26 +83,81 @@ export default function ProjectSubmissionPage() {
     }
 
     const handleSubmit = async () => {
+        setError("")
+        setValidationError("")
+
         // Validate all fields
         const allRolesFilled = teamMembers.every(member => member.role)
         const allFieldsFilled = projectData.technology && projectData.domain &&
-            projectData.problemStatement && projectData.srsReport &&
-            projectData.pptLink
+            projectData.problemStatement && projectData.srsReport
 
-        if (!allRolesFilled || !allFieldsFilled) {
-            alert("Please fill all fields and assign roles to all members")
+        if (!allRolesFilled) {
+            setValidationError("Please assign roles to all team members")
+            return
+        }
+
+        if (!allFieldsFilled) {
+            setValidationError("Please fill all required fields")
             return
         }
 
         setIsLoading(true)
 
-        // TODO: Implement project submission
-        console.log("Submitting project:", { projectData, teamMembers })
+        try {
+            // First, validate team members (check no one is in other teams)
+            const validateResponse = await fetch('/api/teams/validate', {
+                method: 'POST'
+            })
 
-        setTimeout(() => {
+            const validateData = await validateResponse.json()
+
+            if (!validateResponse.ok || !validateData.canProceed) {
+                throw new Error(validateData.message || 'Team validation failed')
+            }
+
+            // Prepare form data
+            const formData = new FormData()
+            formData.append('technology', projectData.technology)
+            formData.append('domain', projectData.domain)
+            formData.append('problemStatement', projectData.problemStatement)
+            formData.append('srsFile', projectData.srsReport!)
+            formData.append('pptUrl', projectData.pptLink || '')
+            formData.append('teamMembers', JSON.stringify(
+                teamMembers.map(m => ({ userId: m.userId, role: m.role }))
+            ))
+
+            // Submit project
+            const response = await fetch('/api/projects/submit', {
+                method: 'POST',
+                body: formData
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                // Check if it's a plagiarism error
+                if (data.plagiarismDetected) {
+                    setError(
+                        `Plagiarism Detected!\n\n` +
+                        `Your SRS has ${data.scorePercentage}% similarity with existing submissions.\n\n` +
+                        `Matched files:\n${data.matchedFiles.join('\n')}\n\n` +
+                        `Please revise your SRS to make it more unique.`
+                    )
+                } else {
+                    throw new Error(data.error || 'Submission failed')
+                }
+                return
+            }
+
+            // Success - redirect to dashboard
+            alert('Project submitted successfully! No plagiarism detected.')
+            router.push('/student/dashboard')
+
+        } catch (err: any) {
+            setError(err.message || 'Failed to submit project')
+        } finally {
             setIsLoading(false)
-            router.push("/student/wait")
-        }, 3000)
+        }
     }
 
     return (
@@ -76,6 +167,26 @@ export default function ProjectSubmissionPage() {
                     <h1 className="text-3xl font-bold">Project Submission</h1>
                     <p className="text-muted-foreground">Complete your project details and team information</p>
                 </div>
+
+                {/* Error Messages */}
+                {error && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <h3 className="font-semibold text-red-900 mb-2">Submission Error</h3>
+                        <p className="text-sm text-red-800 whitespace-pre-line">{error}</p>
+                    </div>
+                )}
+
+                {validationError && (
+                    <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-sm text-yellow-800">{validationError}</p>
+                    </div>
+                )}
+
+                {teamMembers.length === 0 && !error && (
+                    <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-800">Loading team members...</p>
+                    </div>
+                )}
 
                 <div className="grid lg:grid-cols-3 gap-8">
                     {/* Main Form */}

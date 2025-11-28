@@ -11,5 +11,24 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - brainflow-network
+
+  plagiarism-checker:
+    build: ../Plagiarism_Checker
+    container_name: plagiarism-service
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    environment:
+      - OPENAI_API=${OPENAI_API}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+    networks:
+      - brainflow-network
+
+networks:
+  brainflow-network:
+    driver: bridge
+
 volumes:
   pgdata:
